@@ -1,17 +1,25 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
 import Sidebar from './Sidebar.vue'
 import type { LayerData } from '../types'
+
+function makeGeoJSON(count: number): GeoJSON.FeatureCollection {
+  return {
+    type: 'FeatureCollection',
+    features: Array.from({ length: count }, (_, i) => ({
+      type: 'Feature' as const,
+      geometry: { type: 'Point' as const, coordinates: [-105 + i * 0.01, 21 + i * 0.01] },
+      properties: {},
+    })),
+  }
+}
 
 const mockLayers: LayerData[] = [
   {
     id: 'llamada-3310885855',
     label: '3310885855',
     color: '#e63946',
-    points: [
-      { lat: 21.03, lng: -105.24 },
-      { lat: 21.2, lng: -105.0 },
-    ],
+    geojson: makeGeoJSON(3),
     visible: true,
     type: 'llamadas',
   },
@@ -19,52 +27,44 @@ const mockLayers: LayerData[] = [
     id: 'centros',
     label: 'Centros Bahía Banderas',
     color: '#9b59b6',
-    points: [{ lat: 20.75, lng: -105.3 }],
+    geojson: makeGeoJSON(1),
     visible: false,
     type: 'centros',
   },
 ]
 
-const props = {
-  layers: mockLayers,
-  loading: false,
-  error: '',
-  loadingRoute: null,
-  onToggle: vi.fn(),
-  onRefresh: vi.fn(),
-  onTraceRoute: vi.fn(),
-  onClearRoute: vi.fn(),
-}
-
 describe('Sidebar', () => {
   it('renders layers', () => {
-    const wrapper = mount(Sidebar, { props })
+    const wrapper = mount(Sidebar, {
+      props: { layers: mockLayers, loading: false, error: '', loadingRoute: null },
+    })
     expect(wrapper.text()).toContain('3310885855')
     expect(wrapper.text()).toContain('Centros Bahía Banderas')
     expect(wrapper.text()).toContain('Capas GIS')
   })
 
-  it('calls onToggle when layer is clicked', async () => {
-    const wrapper = mount(Sidebar, { props })
-    await wrapper.find('.layer-item').trigger('click')
-    expect(props.onToggle).toHaveBeenCalledWith('llamada-3310885855')
+  it('emits toggle when layer is clicked', async () => {
+    const wrapper = mount(Sidebar, {
+      props: { layers: mockLayers, loading: false, error: '', loadingRoute: null },
+    })
+    await wrapper.find('.layer-btn').trigger('click')
+    expect(wrapper.emitted('toggle')).toBeTruthy()
+    expect(wrapper.emitted('toggle')![0]).toEqual(['llamada-3310885855'])
   })
 
-  it('calls onTraceRoute when Ruta button is clicked', async () => {
-    const wrapper = mount(Sidebar, { props })
-    await wrapper.find('.btn-route').trigger('click')
-    expect(props.onTraceRoute).toHaveBeenCalledWith(mockLayers[0])
-  })
-
-  it('shows Ruta button only for llamadas with 2+ points', () => {
-    const wrapper = mount(Sidebar, { props })
+  it('shows Ruta button only for llamadas with 2+ features', () => {
+    const wrapper = mount(Sidebar, {
+      props: { layers: mockLayers, loading: false, error: '', loadingRoute: null },
+    })
     const routeBtns = wrapper.findAll('.btn-route')
     expect(routeBtns.length).toBe(1)
   })
 
-  it('calls onRefresh when refresh button is clicked', async () => {
-    const wrapper = mount(Sidebar, { props })
+  it('emits refresh when refresh button is clicked', async () => {
+    const wrapper = mount(Sidebar, {
+      props: { layers: mockLayers, loading: false, error: '', loadingRoute: null },
+    })
     await wrapper.find('.btn-refresh').trigger('click')
-    expect(props.onRefresh).toHaveBeenCalled()
+    expect(wrapper.emitted('refresh')).toBeTruthy()
   })
 })

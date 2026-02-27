@@ -34,7 +34,13 @@ async function onTraceRoute(layer: LayerData) {
   loadingRoute.value = layer.id
   error.value = ''
   try {
-    await mapRef.value?.drawRoute(layer.id, layer.points, layer.color)
+    await mapRef.value?.drawRoute(layer.id, layer.geojson, layer.color)
+    const i = layers.value.findIndex(x => x.id === layer.id)
+    if (i >= 0) {
+      const copy = layers.value.slice()
+      copy[i] = { ...copy[i], routeActive: true }
+      layers.value = copy
+    }
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Error al trazar ruta.'
   } finally {
@@ -44,13 +50,22 @@ async function onTraceRoute(layer: LayerData) {
 
 function onClearRoute(id: string) {
   mapRef.value?.clearRoute(id)
-}
-
-function onToggleLayer(id: string) {
   const idx = layers.value.findIndex(x => x.id === id)
   if (idx >= 0) {
     const copy = layers.value.slice()
-    copy[idx] = { ...copy[idx], visible: !copy[idx].visible }
+    copy[idx] = { ...copy[idx], routeActive: false }
+    layers.value = copy
+  }
+}
+
+function onToggleLayer(id: string) {
+  console.log('[App] onToggleLayer called:', id)
+  const idx = layers.value.findIndex(x => x.id === id)
+  if (idx >= 0) {
+    const newVisible = !layers.value[idx].visible
+    console.log('[App] toggling', id, 'visible:', layers.value[idx].visible, '->', newVisible)
+    const copy = layers.value.slice()
+    copy[idx] = { ...copy[idx], visible: newVisible }
     layers.value = copy
   }
 }
@@ -65,10 +80,10 @@ onMounted(loadAll)
       :loading="loading"
       :error="error"
       :loading-route="loadingRoute"
-      :on-toggle="onToggleLayer"
-      :on-refresh="loadAll"
-      :on-trace-route="onTraceRoute"
-      :on-clear-route="onClearRoute"
+      @toggle="onToggleLayer"
+      @refresh="loadAll"
+      @trace-route="onTraceRoute"
+      @clear-route="onClearRoute"
     />
     <MapView ref="mapRef" :layers="layers" :loading-route="loadingRoute" />
   </div>

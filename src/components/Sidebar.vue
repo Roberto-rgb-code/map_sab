@@ -6,10 +6,13 @@ defineProps<{
   loading: boolean
   error: string
   loadingRoute: string | null
-  onToggle: (id: string) => void
-  onRefresh: () => void
-  onTraceRoute: (layer: LayerData) => void
-  onClearRoute: (id: string) => void
+}>()
+
+const emit = defineEmits<{
+  (e: 'toggle', id: string): void
+  (e: 'refresh'): void
+  (e: 'trace-route', layer: LayerData): void
+  (e: 'clear-route', id: string): void
 }>()
 </script>
 
@@ -31,46 +34,36 @@ defineProps<{
         </svg>
         <span>Capas GIS</span>
       </div>
-      <button type="button" class="btn-refresh" :disabled="loading" @click="onRefresh()">
+      <button type="button" class="btn-refresh" :disabled="loading" @click="emit('refresh')">
         {{ loading ? 'Cargando...' : 'Actualizar datos' }}
       </button>
     </div>
     <nav class="layer-list">
-      <div v-for="layer in layers" :key="layer.id" class="layer-row">
+      <div v-for="layer in layers" :key="layer.id" class="layer-card" :class="{ active: layer.visible }">
         <button
           type="button"
-          class="layer-item"
-          :class="{ active: layer.visible }"
-          @click="onToggle(layer.id)"
+          class="layer-btn"
+          @click="emit('toggle', layer.id)"
         >
-          <span class="layer-icon">
-            <span class="layer-dot" :style="{ backgroundColor: layer.color }" />
+          <span class="toggle-track" :class="{ on: layer.visible }">
+            <span class="toggle-thumb" />
           </span>
-          <span class="layer-label">{{ layer.label }}</span>
-          <span class="layer-count">{{ layer.points.length }}</span>
+          <span class="layer-dot" :style="{ backgroundColor: layer.color }" />
+          <span class="layer-name">{{ layer.label }}</span>
         </button>
-        <div
-          v-if="layer.type === 'llamadas' && layer.points.length >= 2"
-          class="layer-actions"
+        <button
+          v-if="layer.type === 'llamadas' && (layer.geojson?.features?.length ?? 0) >= 2"
+          type="button"
+          class="btn-route"
+          :class="{ active: layer.routeActive }"
+          :disabled="!!loadingRoute"
+          @click.stop="layer.routeActive ? emit('clear-route', layer.id) : emit('trace-route', layer)"
         >
-          <button
-            type="button"
-            class="btn-route"
-            :disabled="!!loadingRoute"
-            :title="loadingRoute === layer.id ? 'Calculando...' : 'Trazar ruta'"
-            @click.stop="onTraceRoute(layer)"
-          >
-            {{ loadingRoute === layer.id ? '...' : 'Ruta' }}
-          </button>
-          <button
-            type="button"
-            class="btn-clear-route"
-            title="Quitar ruta"
-            @click.stop="onClearRoute(layer.id)"
-          >
-            ✕
-          </button>
-        </div>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 17l4-4 4 4 4-4 4 4"/>
+          </svg>
+          {{ loadingRoute === layer.id ? 'Trazando...' : layer.routeActive ? 'Quitar ruta' : 'Trazar ruta' }}
+        </button>
       </div>
     </nav>
     <div class="sidebar-footer">
@@ -171,95 +164,117 @@ defineProps<{
 .layer-list {
   flex: 1;
   overflow-y: auto;
-  padding: 0.75rem 0.5rem;
-}
-.layer-row {
+  padding: 0.5rem 0.75rem;
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.5rem;
 }
-.layer-item {
+.layer-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  overflow: hidden;
+  transition: all 0.15s;
+}
+.layer-card:hover {
+  border-color: #c4b5fd;
+  box-shadow: 0 2px 6px rgba(124, 58, 237, 0.08);
+}
+.layer-card.active {
+  border-color: #7c3aed;
+  background: #faf5ff;
+  box-shadow: 0 2px 8px rgba(124, 58, 237, 0.12);
+}
+.layer-btn {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.65rem 1rem;
-  cursor: pointer;
-  transition: background 0.15s;
   width: 100%;
-  text-align: left;
+  padding: 0.7rem 0.75rem;
+  cursor: pointer;
   background: transparent;
   border: none;
-  border-radius: 8px;
-  color: #334155;
   font: inherit;
+  color: #334155;
+  gap: 0.5rem;
 }
-.layer-item:hover {
-  background: #f1f5f9;
-}
-.layer-item.active {
-  background: #f5f3ff;
-  color: #7c3aed;
-}
-.layer-icon {
-  width: 28px;
-  height: 28px;
+.toggle-track {
   display: flex;
   align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
+  width: 32px;
+  min-width: 32px;
+  height: 18px;
+  border-radius: 9px;
+  background: #cbd5e1;
+  padding: 2px;
+  transition: background 0.2s;
+}
+.toggle-track.on {
+  background: #7c3aed;
+}
+.toggle-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.2s;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+}
+.toggle-track.on .toggle-thumb {
+  transform: translateX(14px);
 }
 .layer-dot {
   width: 10px;
+  min-width: 10px;
   height: 10px;
   border-radius: 50%;
 }
-.layer-label {
-  flex: 1;
-  font-size: 0.95rem;
-  font-weight: 500;
-  color: inherit;
+.layer-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #1e293b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.layer-item.active .layer-label {
+.layer-card.active .layer-name {
   color: #7c3aed;
 }
-.layer-count {
-  font-size: 0.8rem;
-  color: #94a3b8;
-}
-.layer-item.active .layer-count {
-  color: #a78bfa;
-}
-.layer-actions {
-  display: flex;
-  gap: 0.25rem;
-  padding: 0 1rem 0.5rem 2.75rem;
-}
-.btn-route,
-.btn-clear-route {
-  padding: 0.3rem 0.6rem;
-  font-size: 0.75rem;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-}
 .btn-route {
-  background: #7c3aed;
-  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0 0.75rem 0.6rem 0.75rem;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #fff;
+  color: #7c3aed;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.btn-route svg {
+  color: #7c3aed;
 }
 .btn-route:hover:not(:disabled) {
+  background: #f5f3ff;
+  border-color: #c4b5fd;
+}
+.btn-route.active {
+  background: #7c3aed;
+  color: #fff;
+  border-color: #7c3aed;
+}
+.btn-route.active svg {
+  color: #fff;
+}
+.btn-route.active:hover:not(:disabled) {
   background: #6d28d9;
 }
 .btn-route:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-}
-.btn-clear-route {
-  background: #f1f5f9;
-  color: #64748b;
-}
-.btn-clear-route:hover {
-  background: #fee2e2;
-  color: #dc2626;
 }
 .sidebar-footer {
   padding: 1rem 1.25rem;

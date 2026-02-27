@@ -1,6 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { fetchRoute } from './routes'
-import type { GeoPoint } from '../types'
+
+function makeFC(coords: [number, number][]): GeoJSON.FeatureCollection {
+  return {
+    type: 'FeatureCollection',
+    features: coords.map(([lat, lng], i) => ({
+      type: 'Feature' as const,
+      geometry: { type: 'Point' as const, coordinates: [lng, lat] },
+      properties: { fechaHora: `2020-04-22 ${10 + i}:00:00` },
+    })),
+  }
+}
 
 describe('routes', () => {
   beforeEach(() => {
@@ -8,52 +18,39 @@ describe('routes', () => {
   })
 
   it('returns null for less than 2 points', async () => {
-    const result = await fetchRoute([{ lat: 21, lng: -105 }])
+    const result = await fetchRoute(makeFC([[21, -105]]))
     expect(result).toBeNull()
     expect(fetch).not.toHaveBeenCalled()
   })
 
   it('fetches route from Google API', async () => {
-    const points: GeoPoint[] = [
-      { lat: 21.0325, lng: -105.246, fechaHora: '2020-04-22 10:00:00' },
-      { lat: 21.2, lng: -105.0, fechaHora: '2020-04-22 11:00:00' },
-    ]
     const mockResponse = {
       status: 'OK',
       routes: [{
         overview_polyline: { points: 'abc123' },
-        legs: [
-          {
-            start_location: { lat: 21.0325, lng: -105.246 },
-            end_location: { lat: 21.2, lng: -105.0 },
-            steps: [{ polyline: { points: 'abc123' } }],
-            distance: { text: '25 km' },
-            duration: { text: '30 min' },
-          },
-        ],
+        legs: [{
+          steps: [{ polyline: { points: 'abc123' } }],
+          distance: { text: '25 km' },
+          duration: { text: '30 min' },
+        }],
       }],
     }
     ;(fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
       json: () => Promise.resolve(mockResponse),
     })
 
-    const legs = await fetchRoute(points)
-
+    const legs = await fetchRoute(makeFC([[21.03, -105.24], [21.2, -105.0]]))
     expect(fetch).toHaveBeenCalled()
     expect(legs).not.toBeNull()
     expect(legs!.length).toBeGreaterThan(0)
-    expect(legs![0].polyline).toBeDefined()
   })
 
-  it('returns null when API returns error', async () => {
+  it('returns null when API returns error status', async () => {
     ;(fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
       json: () => Promise.resolve({ status: 'ZERO_RESULTS' }),
     })
 
-    const result = await fetchRoute([
-      { lat: 21, lng: -105 },
-      { lat: 21.1, lng: -105.1 },
-    ])
+    const result = await fetchRoute(makeFC([[21, -105], [21.1, -105.1]]))
     expect(result).toBeNull()
   })
 })

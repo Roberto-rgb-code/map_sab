@@ -10,13 +10,21 @@ describe('dataLoader', () => {
     expect(getDirectionsApiKey()).toMatch(/^AIza/)
   })
 
-  it('loadDataset fetches and parses dataset', async () => {
-    const mockData = {
-      llamadas: [
-        { linea: '123', points: [{ lat: 21, lng: -105, fechaHora: '2020-01-01 10:00:00' }] },
-      ],
-      centros: [{ lat: 20.75, lng: -105.3, nombre: 'Centro A' }],
-    }
+  it('loadDataset fetches and parses GeoJSON layers', async () => {
+    const mockData = [
+      {
+        id: 'llamada-123',
+        label: '123',
+        color: '#e63946',
+        type: 'llamadas',
+        geojson: {
+          type: 'FeatureCollection',
+          features: [
+            { type: 'Feature', geometry: { type: 'Point', coordinates: [-105, 21] }, properties: {} },
+          ],
+        },
+      },
+    ]
     ;(fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
       ok: true,
       json: () => Promise.resolve(mockData),
@@ -24,20 +32,15 @@ describe('dataLoader', () => {
 
     const layers = await loadDataset()
 
-    expect(fetch).toHaveBeenCalledWith('/data/dataset.json')
-    expect(layers.length).toBe(2) // 1 llamada + 1 centros
+    expect(fetch).toHaveBeenCalledWith('/data/layers.geojson.json')
+    expect(layers).toHaveLength(1)
     expect(layers[0].id).toBe('llamada-123')
-    expect(layers[0].points).toHaveLength(1)
-    expect(layers[0].visible).toBe(true)
-    expect(layers[0].type).toBe('llamadas')
-    expect(layers[1].id).toBe('centros')
-    expect(layers[1].points).toHaveLength(1)
-    expect(layers[1].points[0].ubicacion).toBe('Centro A')
+    expect(layers[0].geojson.features).toHaveLength(1)
+    expect(layers[0].visible).toBe(false)
   })
 
   it('loadDataset throws when fetch fails', async () => {
     ;(fetch as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: false })
-
-    await expect(loadDataset()).rejects.toThrow('No se pudo cargar el dataset')
+    await expect(loadDataset()).rejects.toThrow('No se pudo cargar el dataset GeoJSON')
   })
 })

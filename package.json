@@ -12,6 +12,7 @@
     "test:watch": "vitest"
   },
   "devDependencies": {
+    "@types/geojson": "^7946.0.16",
     "@vue/test-utils": "^2.4.6",
     "jsdom": "^28.1.0",
     "typescript": "~5.9.3",

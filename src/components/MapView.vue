@@ -1,81 +1,47 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted } from 'vue'
 import L from 'leaflet'
-import type { LayerData, GeoPoint } from '../types'
+import type { LayerData } from '../types'
 import { fetchRoute } from '../utils/routes'
 
 const props = defineProps<{ layers: LayerData[]; loadingRoute?: string | null }>()
 
 const mapContainer = ref<HTMLElement | null>(null)
-const activeBaseMap = ref('osm')
+const activeBaseMap = ref('google')
 let map: L.Map | null = null
-const layerGroups = new Map<string, L.LayerGroup>()
-const groupsOnMap = new Set<string>()
+const geoLayers = new Map<string, L.GeoJSON>()
 const routeLayers = new Map<string, L.Polyline[]>()
 let baseLayer: L.TileLayer | null = null
 const baseLayers: Record<string, L.TileLayer> = {}
-let hasFittedInitial = false
+
+const canvasRenderer = L.canvas({ padding: 0.5 })
 
 const BASE_MAP_OPTIONS = [
-  {
-    id: 'osm',
-    name: 'Callejero',
-    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-    attr: '© OpenStreetMap',
-  },
-  {
-    id: 'satellite',
-    name: 'Satélite',
-    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-    attr: '© Esri',
-  },
-  {
-    id: 'dark',
-    name: 'Oscuro',
-    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-    attr: '© CARTO',
-  },
-  {
-    id: 'terrain',
-    name: 'Terreno',
-    url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
-    attr: '© OpenTopoMap',
-  },
+  { id: 'osm', name: 'Callejero', icon: '🗺️', url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', attr: '© OpenStreetMap' },
+  { id: 'google', name: 'Google Maps', icon: '📍', url: 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', attr: '© Google' },
+  { id: 'google-satellite', name: 'Google Satélite', icon: '🛰️', url: 'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', attr: '© Google' },
+  { id: 'satellite', name: 'Satélite Esri', icon: '🌎', url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attr: '© Esri' },
+  { id: 'dark', name: 'Oscuro', icon: '🌑', url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', attr: '© CARTO' },
+  { id: 'terrain', name: 'Terreno', icon: '⛰️', url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', attr: '© OpenTopoMap' },
 ]
 
-function tooltipContent(p: GeoPoint, layerLabel: string): string {
-  const lines: string[] = [
-    `<strong>${layerLabel}</strong>`,
-    `Coordenadas: ${p.lat.toFixed(6)}, ${p.lng.toFixed(6)}`,
-  ]
-  if (p.fechaHora) lines.push(`Fecha/Hora: ${p.fechaHora}`)
-  if (p.fecha) lines.push(`Fecha: ${p.fecha}`)
-  if (p.hora) lines.push(`Hora: ${p.hora}`)
-  if (p.ubicacion) lines.push(`Ubicación: ${p.ubicacion}`)
-  if (p.tipo) lines.push(`Tipo: ${p.tipo}`)
-  if (p.numeroContacto) lines.push(`Contacto: ${p.numeroContacto}`)
-  if (p.duracionSeg != null) lines.push(`Duración: ${p.duracionSeg} seg`)
-  if (p.codigoSitio) lines.push(`Código sitio: ${p.codigoSitio}`)
-  if (p.googleMaps) lines.push(`<a href="${p.googleMaps}" target="_blank" rel="noopener">Abrir en Google Maps</a>`)
+function tooltipHtml(props: Record<string, unknown>, label: string): string {
+  const lines: string[] = [`<strong>${label}</strong>`]
+  const coords = props._coords as string | undefined
+  if (coords) lines.push(`Coordenadas: ${coords}`)
+  if (props.fechaHora) lines.push(`Fecha/Hora: ${props.fechaHora}`)
+  if (props.fecha) lines.push(`Fecha: ${props.fecha}`)
+  if (props.hora) lines.push(`Hora: ${props.hora}`)
+  if (props.ubicacion) lines.push(`Ubicación: ${props.ubicacion}`)
+  if (props.nombre) lines.push(`Nombre: ${props.nombre}`)
+  if (props.direccion) lines.push(`Dirección: ${props.direccion}`)
+  if (props.tipo || props.categoria) lines.push(`Tipo: ${props.tipo || props.categoria}`)
+  if (props.numeroContacto) lines.push(`Contacto: ${props.numeroContacto}`)
+  if (props.telefono) lines.push(`Teléfono: ${props.telefono}`)
+  if (props.duracionSeg != null) lines.push(`Duración: ${props.duracionSeg} seg`)
+  if (props.codigoSitio) lines.push(`Código sitio: ${props.codigoSitio}`)
+  if (props.googleMaps) lines.push(`<a href="${props.googleMaps}" target="_blank" rel="noopener">Abrir en Google Maps</a>`)
   return lines.join('<br>')
-}
-
-function createMarker(p: GeoPoint, color: string, layerLabel: string): L.CircleMarker {
-  const marker = L.circleMarker([p.lat, p.lng], {
-    radius: 8,
-    fillColor: color,
-    color: '#fff',
-    weight: 2,
-    opacity: 1,
-    fillOpacity: 0.9,
-  })
-  marker.bindTooltip(tooltipContent(p, layerLabel), {
-    permanent: false,
-    direction: 'top',
-    className: 'custom-tooltip',
-    offset: [0, -8],
-  })
-  return marker
 }
 
 function initMap() {
@@ -84,72 +50,84 @@ function initMap() {
     center: [21.2, -105.0],
     zoom: 9,
     zoomControl: false,
+    renderer: canvasRenderer,
   })
   L.control.zoom({ position: 'topright' }).addTo(map)
   for (const opt of BASE_MAP_OPTIONS) {
-    baseLayers[opt.id] = L.tileLayer(opt.url, { attribution: opt.attr })
+    baseLayers[opt.id] = L.tileLayer(opt.url, { attribution: opt.attr, maxZoom: 19 })
   }
-  baseLayer = baseLayers['osm']
+  baseLayer = baseLayers['google']
   baseLayer.addTo(map)
 }
 
 function syncLayers() {
   if (!map) return
-  const allPoints: [number, number][] = []
-  for (const layer of props.layers) {
-    let group = layerGroups.get(layer.id)
-    if (!group) {
-      group = L.layerGroup()
-      layerGroups.set(layer.id, group)
-    }
-    group.clearLayers()
-    if (layer.visible && layer.points.length > 0) {
-      for (const p of layer.points) {
-        const m = createMarker(p, layer.color, layer.label)
-        group.addLayer(m)
-        allPoints.push([p.lat, p.lng])
-      }
-    }
-    if (layer.visible) {
-      if (!groupsOnMap.has(layer.id)) {
-        map.addLayer(group)
-        groupsOnMap.add(layer.id)
-      }
-    } else {
-      if (groupsOnMap.has(layer.id)) {
-        map.removeLayer(group)
-        groupsOnMap.delete(layer.id)
-      }
-    }
+
+  for (const [, gl] of geoLayers) {
+    map.removeLayer(gl)
   }
-  if (allPoints.length > 0 && !hasFittedInitial) {
-    hasFittedInitial = true
-    const bounds = L.latLngBounds(allPoints)
-    if (allPoints.length === 1) {
-      map.setView(allPoints[0], 12)
-    } else {
-      map.fitBounds(bounds, { padding: [50, 50], maxZoom: 14 })
-    }
+  geoLayers.clear()
+
+  const allBounds: L.LatLng[] = []
+
+  for (const layer of props.layers) {
+    if (!layer.visible || !layer.geojson?.features?.length) continue
+
+    const gl = L.geoJSON(layer.geojson, {
+      renderer: canvasRenderer,
+      pointToLayer: (_feature, latlng) => {
+        allBounds.push(latlng)
+        return L.circleMarker(latlng, {
+          radius: layer.type === 'centros' ? 7 : 6,
+          fillColor: layer.color,
+          color: '#fff',
+          weight: 1.5,
+          opacity: 1,
+          fillOpacity: 0.85,
+          renderer: canvasRenderer,
+        })
+      },
+      onEachFeature: (feature, featureLayer) => {
+        const p = feature.properties || {}
+        if (feature.geometry.type === 'Point') {
+          const [lng, lat] = (feature.geometry as GeoJSON.Point).coordinates
+          p._coords = `${lat.toFixed(6)}, ${lng.toFixed(6)}`
+        }
+        featureLayer.bindTooltip(tooltipHtml(p, layer.label), {
+          direction: 'top',
+          className: 'custom-tooltip',
+          offset: [0, -6],
+        })
+      },
+    })
+
+    gl.addTo(map)
+    geoLayers.set(layer.id, gl)
+  }
+
+  if (allBounds.length > 0) {
+    const bounds = L.latLngBounds(allBounds)
+    map.fitBounds(bounds, { padding: [50, 50], maxZoom: 15, animate: true })
   }
 }
 
-async function drawRoute(layerId: string, points: GeoPoint[], color: string) {
-  if (points.length < 2) return
+async function drawRoute(layerId: string, geojson: GeoJSON.FeatureCollection, color: string) {
   if (!map) throw new Error('Mapa no listo')
-  const legs = await fetchRoute(points)
+  const legs = await fetchRoute(geojson)
   if (!legs || legs.length === 0) throw new Error('No se obtuvo ruta de Google')
-  const existing = routeLayers.get(layerId) || []
-  for (const pl of existing) map.removeLayer(pl)
-  routeLayers.set(layerId, [])
+
+  clearRoute(layerId)
+  const polys: L.Polyline[] = []
   for (const leg of legs) {
     if (leg.polyline.length < 2) continue
     const poly = L.polyline(leg.polyline, {
       color,
-      weight: 5,
-      opacity: 1,
+      weight: 4,
+      opacity: 0.9,
     }).addTo(map)
-    routeLayers.get(layerId)!.push(poly)
+    polys.push(poly)
   }
+  routeLayers.set(layerId, polys)
 }
 
 function setBaseMap(id: string) {
@@ -174,24 +152,18 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  layerGroups.forEach(g => map?.removeLayer(g))
+  geoLayers.forEach(g => map?.removeLayer(g))
   routeLayers.forEach(pls => pls.forEach(pl => map?.removeLayer(pl)))
   map?.remove()
   map = null
 })
 
 watch(
-  () => props.layers,
-  (layers) => {
-    syncLayers()
-  },
-  { deep: true }
+  () => props.layers.map(l => `${l.id}:${l.visible}`).join(','),
+  () => syncLayers(),
 )
 
-defineExpose({
-  drawRoute,
-  clearRoute,
-})
+defineExpose({ drawRoute, clearRoute })
 </script>
 
 <template>
@@ -200,8 +172,19 @@ defineExpose({
     <div v-if="props.loadingRoute" class="route-loading">
       Calculando ruta...
     </div>
-    <div class="map-actions">
-      <slot name="actions" />
+    <div class="basemap-widget">
+      <button
+        v-for="opt in BASE_MAP_OPTIONS"
+        :key="opt.id"
+        type="button"
+        class="basemap-btn"
+        :class="{ active: activeBaseMap === opt.id }"
+        :title="opt.name"
+        @click="setBaseMap(opt.id)"
+      >
+        <span class="basemap-icon">{{ opt.icon }}</span>
+        <span class="basemap-name">{{ opt.name }}</span>
+      </button>
     </div>
   </div>
 </template>
@@ -211,83 +194,77 @@ defineExpose({
   flex: 1;
   position: relative;
   min-width: 0;
-  margin-right: 24px;
 }
 .map {
   width: 100%;
   height: 100%;
-  background: #0f172a;
+  background: #e2e8f0;
 }
 .route-loading {
   position: absolute;
   top: 1rem;
   left: 50%;
   transform: translateX(-50%);
-  background: rgba(26, 26, 46, 0.95);
-  color: #a8dadc;
+  background: rgba(124, 58, 237, 0.9);
+  color: #fff;
   padding: 0.5rem 1.25rem;
   border-radius: 8px;
   font-size: 0.9rem;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  font-weight: 500;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  z-index: 1000;
 }
-.map-controls {
+.basemap-widget {
   position: absolute;
-  bottom: 1rem;
-  left: 1rem;
-  right: 1.5rem;
+  top: 10px;
+  right: 10px;
+  margin-top: 80px;
+  z-index: 1000;
   display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  pointer-events: none;
-}
-.map-controls > * {
-  pointer-events: auto;
-}
-.basemap-selector {
-  background: rgba(26, 26, 46, 0.92);
-  padding: 0.5rem 0.75rem;
+  flex-direction: column;
+  gap: 4px;
+  background: #fff;
   border-radius: 8px;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.3);
-}
-.basemap-label {
-  display: block;
-  font-size: 0.7rem;
-  color: #94a3b8;
-  margin-bottom: 0.35rem;
-}
-.basemap-btns {
-  display: flex;
-  gap: 0.25rem;
-  flex-wrap: wrap;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  padding: 4px;
 }
 .basemap-btn {
-  padding: 0.35rem 0.6rem;
-  font-size: 0.75rem;
-  border: 1px solid rgba(168, 218, 220, 0.3);
-  border-radius: 4px;
-  background: transparent;
-  color: #a8dadc;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  font-size: 0.8rem;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #334155;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.15s;
+  white-space: nowrap;
 }
 .basemap-btn:hover {
-  background: rgba(168, 218, 220, 0.15);
+  background: #e2e8f0;
 }
 .basemap-btn.active {
-  background: rgba(168, 218, 220, 0.25);
-  border-color: #a8dadc;
+  background: #ede9fe;
+  border-color: #7c3aed;
+  color: #7c3aed;
+  font-weight: 600;
+}
+.basemap-icon {
+  font-size: 1rem;
+}
+.basemap-name {
+  font-size: 0.8rem;
 }
 :deep(.custom-tooltip) {
-  background: rgba(26, 26, 46, 0.95) !important;
-  border: 1px solid rgba(168, 218, 220, 0.4) !important;
+  background: rgba(15, 23, 42, 0.95) !important;
+  border: 1px solid rgba(124, 58, 237, 0.4) !important;
   border-radius: 8px !important;
   padding: 0.5rem 0.75rem !important;
   font-size: 0.85rem !important;
-  color: #e8e8e8 !important;
+  color: #f1f5f9 !important;
   max-width: 320px;
-}
-:deep(.leaflet-tooltip-left::before),
-:deep(.leaflet-tooltip-right::before) {
-  border-top-color: rgba(26, 26, 46, 0.95) !important;
+  line-height: 1.4;
 }
 </style>

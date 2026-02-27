@@ -1,20 +1,39 @@
-import type { GeoPoint } from '../types'
 import { getDirectionsApiKey } from './dataLoader'
 
-const MAX_WAYPOINTS = 23 // Google allows 25 total (origin + waypoints + dest), we use 23 middle
-
 export interface RouteLeg {
-  start: GeoPoint
-  end: GeoPoint
   polyline: [number, number][]
   distance: string
   duration: string
 }
 
-function samplePoints(points: GeoPoint[], maxPoints: number): GeoPoint[] {
+interface SimplePoint {
+  lat: number
+  lng: number
+  fechaHora?: string
+  fecha?: string
+}
+
+const MAX_WAYPOINTS = 23
+
+export function featuresToPoints(fc: GeoJSON.FeatureCollection): SimplePoint[] {
+  return fc.features
+    .filter(f => f.geometry.type === 'Point')
+    .map(f => {
+      const [lng, lat] = (f.geometry as GeoJSON.Point).coordinates
+      return {
+        lat,
+        lng,
+        fechaHora: f.properties?.fechaHora ?? undefined,
+        fecha: f.properties?.fecha ?? undefined,
+      }
+    })
+    .filter(p => isFinite(p.lat) && isFinite(p.lng))
+}
+
+function samplePoints(points: SimplePoint[], maxPoints: number): SimplePoint[] {
   if (points.length <= maxPoints) return points
   const step = (points.length - 1) / (maxPoints - 1)
-  const result: GeoPoint[] = []
+  const result: SimplePoint[] = []
   for (let i = 0; i < maxPoints; i++) {
     const idx = Math.min(Math.round(i * step), points.length - 1)
     result.push(points[idx])
@@ -22,22 +41,20 @@ function samplePoints(points: GeoPoint[], maxPoints: number): GeoPoint[] {
   return result
 }
 
-export async function fetchRoute(points: GeoPoint[]): Promise<RouteLeg[] | null> {
-  const filtered = points.filter(p => p.lat != null && p.lng != null)
-  if (filtered.length < 2) return null
+export async function fetchRoute(geojson: GeoJSON.FeatureCollection): Promise<RouteLeg[] | null> {
+  const points = featuresToPoints(geojson)
+  if (points.length < 2) return null
 
   const apiKey = getDirectionsApiKey()
   const legs: RouteLeg[] = []
 
-  // Sort by date/time for trazabilidad
-  const sorted = [...filtered].sort((a, b) =>
+  const sorted = [...points].sort((a, b) =>
     (a.fechaHora || a.fecha || '').localeCompare(b.fechaHora || b.fecha || '')
   )
 
-  // Limit points for API (max 25 per request)
   const sampled = samplePoints(sorted, 25)
 
-  const chunks: GeoPoint[][] = []
+  const chunks: SimplePoint[][] = []
   for (let i = 0; i < sampled.length; i += MAX_WAYPOINTS) {
     chunks.push(sampled.slice(i, i + MAX_WAYPOINTS + 1))
   }
@@ -46,9 +63,7 @@ export async function fetchRoute(points: GeoPoint[]): Promise<RouteLeg[] | null>
     const origin = chunk[0]
     const dest = chunk[chunk.length - 1]
     const waypoints = chunk.slice(1, -1)
-    const waypointsStr = waypoints
-      .map(p => `${p.lat},${p.lng}`)
-      .join('|')
+    const waypointsStr = waypoints.map(p => `${p.lat},${p.lng}`).join('|')
 
     const params = new URLSearchParams({
       origin: `${origin.lat},${origin.lng}`,
@@ -61,10 +76,11 @@ export async function fetchRoute(points: GeoPoint[]): Promise<RouteLeg[] | null>
     const useProxy = typeof import.meta !== 'undefined' && (import.meta as { env?: { DEV?: boolean } }).env?.DEV
     const baseUrl = useProxy ? '/api/google/directions' : 'https://maps.googleapis.com/maps/api/directions'
     const url = `${baseUrl}/json?${params}`
+
     let res: Response
     try {
       res = await fetch(url)
-    } catch (err) {
+    } catch {
       throw new Error('Error de red. ¿Hay conexión a internet?')
     }
     const data = await res.json()
@@ -82,25 +98,14 @@ export async function fetchRoute(points: GeoPoint[]): Promise<RouteLeg[] | null>
     const fullPolyline = decodePolyline(route.overview_polyline?.points || '')
 
     if (routeLegs.length === 0 && fullPolyline.length > 0) {
-      legs.push({
-        start: chunk[0],
-        end: chunk[chunk.length - 1],
-        polyline: fullPolyline,
-        distance: '',
-        duration: '',
-      })
+      legs.push({ polyline: fullPolyline, distance: '', duration: '' })
     } else {
-      for (let i = 0; i < routeLegs.length; i++) {
-        const leg = routeLegs[i]
-        const steps = leg.steps || []
+      for (const leg of routeLegs) {
         const polyline: [number, number][] = []
-        for (const step of steps) {
-          const pts = decodePolyline(step.polyline?.points)
-          polyline.push(...pts)
+        for (const step of leg.steps || []) {
+          polyline.push(...decodePolyline(step.polyline?.points))
         }
         legs.push({
-          start: { ...chunk[i], lat: leg.start_location?.lat ?? chunk[i]?.lat, lng: leg.start_location?.lng ?? chunk[i]?.lng },
-          end: { ...chunk[i + 1], lat: leg.end_location?.lat ?? chunk[i + 1]?.lat, lng: leg.end_location?.lng ?? chunk[i + 1]?.lng },
           polyline: polyline.length ? polyline : fullPolyline,
           distance: leg.distance?.text || '',
           duration: leg.duration?.text || '',
@@ -124,8 +129,7 @@ function decodePolyline(encoded: string): [number, number][] {
       result |= (b & 0x1f) << shift
       shift += 5
     } while (b >= 0x20)
-    const dlat = (result & 1) ? ~(result >> 1) : result >> 1
-    lat += dlat
+    lat += (result & 1) ? ~(result >> 1) : result >> 1
 
     shift = 0
     result = 0
@@ -134,8 +138,7 @@ function decodePolyline(encoded: string): [number, number][] {
       result |= (b & 0x1f) << shift
       shift += 5
     } while (b >= 0x20)
-    const dlng = (result & 1) ? ~(result >> 1) : result >> 1
-    lng += dlng
+    lng += (result & 1) ? ~(result >> 1) : result >> 1
 
     points.push([lat / 1e5, lng / 1e5])
   }

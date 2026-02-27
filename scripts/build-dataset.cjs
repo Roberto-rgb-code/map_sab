@@ -200,67 +200,105 @@ function extractCentrosFixed(filePath) {
   return points
 }
 
+function pointToFeature(pt) {
+  const { lat, lng, ...props } = pt
+  return {
+    type: 'Feature',
+    geometry: { type: 'Point', coordinates: [lng, lat] },
+    properties: props,
+  }
+}
+
+function toFeatureCollection(points) {
+  return {
+    type: 'FeatureCollection',
+    features: points.map(pointToFeature),
+  }
+}
+
 // --- EJECUCIÓN ---
-const dataset = { llamadas: [], centros: [] }
+const llamadasRaw = []
+
+function addToLinea(linea, newPoints) {
+  const existing = llamadasRaw.find(l => l.linea === linea)
+  if (existing) {
+    const merged = [...existing.points, ...newPoints]
+    const seen = new Set()
+    existing.points = merged.filter(p => {
+      const key = `${p.lat},${p.lng},${p.fechaHora}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    }).sort((a, b) => (a.fechaHora || '').localeCompare(b.fechaHora || ''))
+  } else {
+    const sorted = [...newPoints].sort((a, b) => (a.fechaHora || '').localeCompare(b.fechaHora || ''))
+    llamadasRaw.push({ linea, points: sorted })
+  }
+}
 
 // CSV consolidado
 const csvPath = path.join(SOURCE, 'llamadas_con_geolocalizacion_consolidado.csv')
 if (fs.existsSync(csvPath)) {
   const byLinea = extractLlamadasFromCSV(csvPath)
   for (const [linea, points] of byLinea) {
-    const sorted = points.sort((a, b) => (a.fechaHora || '').localeCompare(b.fechaHora || ''))
-    dataset.llamadas.push({ linea, points: sorted })
+    addToLinea(linea, points)
   }
 }
 
-// XLSX 3222357531
+// XLSX 3222357531 - CDR directo de la línea 3222357531
 const xlsx1 = path.join(SOURCE, '3222357531.xlsx')
 if (fs.existsSync(xlsx1)) {
   const points = extractLlamadasFromXlsx(xlsx1, '3222357531')
-  const sorted = points.sort((a, b) => (a.fechaHora || '').localeCompare(b.fechaHora || ''))
-  const existing = dataset.llamadas.find(l => l.linea === '3222357531')
-  if (existing) {
-    const merged = [...existing.points, ...points]
-    const seen = new Set()
-    existing.points = merged.filter(p => {
-      const key = `${p.lat},${p.lng},${p.fechaHora}`
-      if (seen.has(key)) return false
-      seen.add(key)
-      return true
-    }).sort((a, b) => (a.fechaHora || '').localeCompare(b.fechaHora || ''))
-  } else {
-    dataset.llamadas.push({ linea: '3222357531', points: sorted })
-  }
+  console.log('3222357531.xlsx: extraídos', points.length, 'puntos con coordenadas')
+  addToLinea('3222357531', points)
 }
 
-// XLSX 35181280041306
+// XLSX 35181280041306 - CDR de colaboración, misma línea 3222357531
+// (35181280041306 es número de referencia/IMSI, no es teléfono)
 const xlsx2 = path.join(SOURCE, '35181280041306.xlsx')
 if (fs.existsSync(xlsx2)) {
-  const points = extractLlamadasFromXlsx(xlsx2, '35181280041306')
-  const sorted = points.sort((a, b) => (a.fechaHora || '').localeCompare(b.fechaHora || ''))
-  const existing = dataset.llamadas.find(l => l.linea === '35181280041306')
-  if (existing) {
-    const merged = [...existing.points, ...points]
-    const seen = new Set()
-    existing.points = merged.filter(p => {
-      const key = `${p.lat},${p.lng},${p.fechaHora}`
-      if (seen.has(key)) return false
-      seen.add(key)
-      return true
-    }).sort((a, b) => (a.fechaHora || '').localeCompare(b.fechaHora || ''))
-  } else {
-    dataset.llamadas.push({ linea: '35181280041306', points: sorted })
-  }
+  const points = extractLlamadasFromXlsx(xlsx2, '3222357531')
+  console.log('35181280041306.xlsx: extraídos', points.length, 'puntos con coordenadas (colaboración)')
+  addToLinea('3222357531', points)
 }
 
 // Centros
+let centrosPoints = []
 const centrosPath = path.join(SOURCE, 'CentrosBahiaBanderas.xlsx')
 if (fs.existsSync(centrosPath)) {
-  dataset.centros = extractCentrosFixed(centrosPath)
+  centrosPoints = extractCentrosFixed(centrosPath)
 }
 
-// Guardar
-fs.writeFileSync(path.join(DATA_DIR, 'dataset.json'), JSON.stringify(dataset, null, 2), 'utf-8')
-console.log('Dataset generado en public/data/dataset.json')
-console.log('Llamadas:', dataset.llamadas.length, 'capas, puntos:', dataset.llamadas.reduce((s, l) => s + l.points.length, 0))
-console.log('Centros:', dataset.centros.length, 'puntos')
+// --- Generar GeoJSON ---
+const LAYER_COLORS = ['#e63946', '#2a9d8f', '#e9c46a', '#264653', '#457b9d', '#e76f51']
+
+const layers = []
+let colorIdx = 0
+
+for (const ll of llamadasRaw) {
+  if (!ll.points.length) continue
+  layers.push({
+    id: `llamada-${ll.linea}`,
+    label: ll.linea,
+    color: LAYER_COLORS[colorIdx++ % LAYER_COLORS.length],
+    type: 'llamadas',
+    geojson: toFeatureCollection(ll.points),
+  })
+}
+
+layers.push({
+  id: 'centros',
+  label: 'Centros Bahía Banderas',
+  color: '#9b59b6',
+  type: 'centros',
+  geojson: toFeatureCollection(centrosPoints),
+})
+
+// Guardar un solo archivo con todas las capas en GeoJSON
+fs.writeFileSync(path.join(DATA_DIR, 'layers.geojson.json'), JSON.stringify(layers), 'utf-8')
+
+const totalPts = llamadasRaw.reduce((s, l) => s + l.points.length, 0)
+console.log('GeoJSON generado en public/data/layers.geojson.json')
+console.log('Llamadas:', llamadasRaw.length, 'capas,', totalPts, 'puntos')
+console.log('Centros:', centrosPoints.length, 'puntos')
+console.log('Total features:', totalPts + centrosPoints.length)
