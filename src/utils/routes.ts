@@ -73,9 +73,7 @@ export async function fetchRoute(geojson: GeoJSON.FeatureCollection): Promise<Ro
     })
     if (waypointsStr) params.set('waypoints', waypointsStr)
 
-    const useProxy = typeof import.meta !== 'undefined' && (import.meta as { env?: { DEV?: boolean } }).env?.DEV
-    const baseUrl = useProxy ? '/api/google/directions' : 'https://maps.googleapis.com/maps/api/directions'
-    const url = `${baseUrl}/json?${params}`
+    const url = `/api/google/directions/json?${params}`
 
     let res: Response
     try {
