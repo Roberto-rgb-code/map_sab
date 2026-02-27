@@ -17,7 +17,7 @@ app.get('/api/google/directions/json', async (req, res) => {
   }
 })
 
-app.get('*', (_req, res) => {
+app.use((_req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'))
 })
 
