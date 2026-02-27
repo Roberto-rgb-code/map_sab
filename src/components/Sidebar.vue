@@ -13,6 +13,7 @@ const emit = defineEmits<{
   (e: 'refresh'): void
   (e: 'trace-route', layer: LayerData): void
   (e: 'clear-route', id: string): void
+  (e: 'simulate', layer: LayerData): void
 }>()
 </script>
 
@@ -63,6 +64,17 @@ const emit = defineEmits<{
             <path d="M3 17l4-4 4 4 4-4 4 4"/>
           </svg>
           {{ loadingRoute === layer.id ? 'Trazando...' : layer.routeActive ? 'Quitar ruta' : 'Trazar ruta' }}
+        </button>
+        <button
+          v-if="layer.type === 'llamadas' && layer.routeActive"
+          type="button"
+          class="btn-simulate"
+          @click.stop="emit('simulate', layer)"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-7 8-7s8 3 8 7"/>
+          </svg>
+          Simular recorrido
         </button>
       </div>
     </nav>
@@ -275,6 +287,27 @@ const emit = defineEmits<{
 .btn-route:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+.btn-simulate {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0 0.75rem 0.6rem 0.75rem;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+  border: 1px solid #059669;
+  border-radius: 6px;
+  background: #059669;
+  color: #fff;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.btn-simulate svg {
+  color: #fff;
+}
+.btn-simulate:hover {
+  background: #047857;
 }
 .sidebar-footer {
   padding: 1rem 1.25rem;

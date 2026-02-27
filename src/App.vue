@@ -59,15 +59,16 @@ function onClearRoute(id: string) {
 }
 
 function onToggleLayer(id: string) {
-  console.log('[App] onToggleLayer called:', id)
   const idx = layers.value.findIndex(x => x.id === id)
   if (idx >= 0) {
-    const newVisible = !layers.value[idx].visible
-    console.log('[App] toggling', id, 'visible:', layers.value[idx].visible, '->', newVisible)
     const copy = layers.value.slice()
-    copy[idx] = { ...copy[idx], visible: newVisible }
+    copy[idx] = { ...copy[idx], visible: !copy[idx].visible }
     layers.value = copy
   }
+}
+
+function onSimulate(layer: LayerData) {
+  mapRef.value?.startSimulation(layer.geojson, layer.color)
 }
 
 onMounted(loadAll)
@@ -84,6 +85,7 @@ onMounted(loadAll)
       @refresh="loadAll"
       @trace-route="onTraceRoute"
       @clear-route="onClearRoute"
+      @simulate="onSimulate"
     />
     <MapView ref="mapRef" :layers="layers" :loading-route="loadingRoute" />
   </div>

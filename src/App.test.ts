@@ -35,6 +35,9 @@ vi.mock('leaflet', () => ({
     geoJSON: vi.fn().mockReturnValue({ addTo: vi.fn() }),
     canvas: vi.fn().mockReturnValue({}),
     latLngBounds: vi.fn(),
+    divIcon: vi.fn().mockReturnValue({}),
+    marker: vi.fn().mockReturnValue({ addTo: vi.fn(), setLatLng: vi.fn(), remove: vi.fn() }),
+    polyline: vi.fn().mockReturnValue({ addTo: vi.fn(), addLatLng: vi.fn(), remove: vi.fn() }),
   },
 }))
 
