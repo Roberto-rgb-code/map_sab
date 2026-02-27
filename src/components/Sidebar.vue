@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref, onMounted } from 'vue'
 import type { LayerData } from '../types'
 
 defineProps<{
@@ -15,6 +16,26 @@ const emit = defineEmits<{
   (e: 'clear-route', id: string): void
   (e: 'simulate', layer: LayerData): void
 }>()
+
+const NOTES_KEY = 'sabanas-map-notes'
+const notes = ref<Record<string, string>>({})
+const editingNote = ref<string | null>(null)
+
+onMounted(() => {
+  try {
+    const saved = localStorage.getItem(NOTES_KEY)
+    if (saved) notes.value = JSON.parse(saved)
+  } catch { /* ignore */ }
+})
+
+function saveNote(layerId: string, text: string) {
+  notes.value[layerId] = text
+  localStorage.setItem(NOTES_KEY, JSON.stringify(notes.value))
+}
+
+function toggleEdit(layerId: string) {
+  editingNote.value = editingNote.value === layerId ? null : layerId
+}
 </script>
 
 <template>
@@ -52,6 +73,31 @@ const emit = defineEmits<{
           <span class="layer-dot" :style="{ backgroundColor: layer.color }" />
           <span class="layer-name">{{ layer.label }}</span>
         </button>
+        <div class="note-area">
+          <div v-if="editingNote === layer.id" class="note-edit">
+            <textarea
+              class="note-input"
+              :value="notes[layer.id] || ''"
+              placeholder="Escribe una nota..."
+              rows="2"
+              @input="saveNote(layer.id, ($event.target as HTMLTextAreaElement).value)"
+              @click.stop
+              @keydown.stop
+            />
+            <button type="button" class="note-done" @click.stop="toggleEdit(layer.id)">Listo</button>
+          </div>
+          <button
+            v-else
+            type="button"
+            class="note-toggle"
+            @click.stop="toggleEdit(layer.id)"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/>
+            </svg>
+            {{ notes[layer.id] ? notes[layer.id] : 'Agregar nota' }}
+          </button>
+        </div>
         <button
           v-if="layer.type === 'llamadas' && (layer.geojson?.features?.length ?? 0) >= 2"
           type="button"
@@ -250,6 +296,68 @@ const emit = defineEmits<{
 }
 .layer-card.active .layer-name {
   color: #7c3aed;
+}
+.note-area {
+  padding: 0 0.75rem 0.4rem;
+}
+.note-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: none;
+  border: none;
+  color: #94a3b8;
+  font-size: 0.72rem;
+  cursor: pointer;
+  padding: 0.15rem 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: inherit;
+  transition: color 0.15s;
+}
+.note-toggle:hover {
+  color: #7c3aed;
+}
+.note-toggle svg {
+  flex-shrink: 0;
+}
+.note-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.note-input {
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  font-size: 0.78rem;
+  font-family: inherit;
+  border: 1px solid #c4b5fd;
+  border-radius: 6px;
+  background: #fff;
+  color: #334155;
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.note-input:focus {
+  border-color: #7c3aed;
+  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.1);
+}
+.note-done {
+  align-self: flex-end;
+  background: none;
+  border: none;
+  color: #7c3aed;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.15rem 0.3rem;
+  border-radius: 4px;
+}
+.note-done:hover {
+  background: #f5f3ff;
 }
 .btn-route {
   display: flex;
