@@ -217,6 +217,16 @@ function toFeatureCollection(points) {
 }
 
 // --- EJECUCIÓN ---
+
+// Si ya existe el GeoJSON y no están los archivos fuente, saltar
+const outputPath = path.join(DATA_DIR, 'layers.geojson.json')
+const csvExists = fs.existsSync(path.join(SOURCE, 'llamadas_con_geolocalizacion_consolidado.csv'))
+const xlsx1Exists = fs.existsSync(path.join(SOURCE, '3222357531.xlsx'))
+if (!csvExists && !xlsx1Exists && fs.existsSync(outputPath)) {
+  console.log('Archivos fuente no encontrados. Usando GeoJSON existente.')
+  process.exit(0)
+}
+
 const llamadasRaw = []
 
 function addToLinea(linea, newPoints) {
